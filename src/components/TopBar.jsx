@@ -1,5 +1,4 @@
 import React from 'react'
-import { BRANCHES } from './UI'
 
 const TITLES = {
   schedule:'Расписание', students:'Ученики', teachers:'Педагоги',
@@ -7,7 +6,12 @@ const TITLES = {
   broadcast:'Рассылка', settings:'Настройки'
 }
 
-export default function TopBar({ page, branch, setBranch }) {
+export default function TopBar({ page, branch, setBranch, branches }) {
+  // Используем филиалы из БД, а если пусто — фоллбэк
+  const branchList = branches && branches.length > 0
+    ? branches.map(b => b.name)
+    : ['Ганди 44', 'Ганди 29']
+
   return (
     <div style={{
       height:52, background:'var(--card)', borderBottom:'1px solid var(--line)',
@@ -19,7 +23,7 @@ export default function TopBar({ page, branch, setBranch }) {
       <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:12 }}>
         <select className="s-select" value={branch} onChange={e=>setBranch(e.target.value)}>
           <option value="all">Все филиалы</option>
-          {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
+          {branchList.map(b => <option key={b} value={b}>{b}</option>)}
         </select>
         {/* Notification bell */}
         <div style={{ position:'relative', cursor:'pointer', color:'var(--ink-muted)' }}>
@@ -35,3 +39,4 @@ export default function TopBar({ page, branch, setBranch }) {
     </div>
   )
 }
+

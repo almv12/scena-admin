@@ -19,6 +19,7 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false)
   const [branch, setBranch] = useState('all')
   const [pendingCount, setPendingCount] = useState(0)
+  const [branches, setBranches] = useState([])
 
   // Check auth on load
   useEffect(() => {
@@ -31,6 +32,13 @@ export default function App() {
     })
     return () => subscription.unsubscribe()
   }, [])
+
+  // Load branches from DB
+  useEffect(() => {
+    if (!user) return
+    supabase.from('branches').select('*').eq('is_active', true).order('name')
+      .then(({ data }) => setBranches(data || []))
+  }, [user])
 
   // Load pending count for badge
   useEffect(() => {
@@ -61,7 +69,7 @@ export default function App() {
   // Render current page
   function renderPage() {
     switch(page) {
-      case 'schedule': return <Schedule branch={branch} />
+      case 'schedule': return <Schedule branch={branch} branches={branches} />
       case 'students': return <Students branch={branch} />
       case 'teachers': return <Teachers branch={branch} />
       case 'approve': return <Approve />
@@ -69,7 +77,7 @@ export default function App() {
       case 'finance': return <Finance />
       case 'broadcast': return <Broadcast />
       case 'settings': return <Settings />
-      default: return <Schedule branch={branch} />
+      default: return <Schedule branch={branch} branches={branches} />
     }
   }
 
@@ -85,7 +93,7 @@ export default function App() {
         onLogout={handleLogout}
       />
       <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-        <TopBar page={page} branch={branch} setBranch={setBranch} />
+        <TopBar page={page} branch={branch} setBranch={setBranch} branches={branches} />
         <div style={{ flex:1, overflowY:'auto', padding:22 }}>
           {renderPage()}
         </div>
@@ -93,3 +101,4 @@ export default function App() {
     </div>
   )
 }
+

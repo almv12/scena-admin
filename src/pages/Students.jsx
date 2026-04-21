@@ -1,22 +1,23 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../lib/supabase'
-import { instrColor, Badge, Avatar, Stat, Spinner, Empty, DetailPanel, Section, InfoRow } from '../components/UI'
+import { instrColor, Badge, Avatar, Stat, Spinner, Empty, DetailPanel, Section, InfoRow, Modal, Field } from '../components/UI'
 
 export default function Students({ branch }) {
   const [students, setStudents] = useState([])
   const [search, setSearch] = useState('')
-  const [filterInstr, setFilterInstr] = useState('')
-  const [filterStatus, setFilterStatus] = useState('')
   const [loading, setLoading] = useState(true)
   const [detail, setDetail] = useState(null)
   const [detailLessons, setDetailLessons] = useState([])
+  const [addModal, setAddModal] = useState(null)
+  const [editName, setEditName] = useState(null)
 
-  useEffect(() => {
-    supabase.from('users').select('*').eq('role','student').order('full_name').then(({data}) => {
-      setStudents(data || [])
-      setLoading(false)
-    })
-  }, [])
+  async function loadStudents() {
+    const { data } = await supabase.from('users').select('*').eq('role','student').order('full_name')
+    setStudents(data || [])
+    setLoading(false)
+  }
+
+  useEffect(() => { loadStudents() }, [])
 
   const filtered = useMemo(() => {
     let list = students
@@ -29,7 +30,7 @@ export default function Students({ branch }) {
       )
     }
     return list
-  }, [students, search, filterInstr, filterStatus])
+  }, [students, search])
 
   async function openDetail(st) {
     setDetail(st)
@@ -38,6 +39,29 @@ export default function Students({ branch }) {
       .order('lesson_date', { ascending: false })
       .limit(15)
     setDetailLessons(data || [])
+  }
+
+  // Добавление нового ученика
+  async function addStudent() {
+    if (!addModal.full_name) return
+    const { error } = await supabase.from('users').insert({
+      full_name: addModal.full_name,
+      phone: addModal.phone || null,
+      role: 'student',
+    })
+    if (error) { alert('Ошибка: ' + error.message); return }
+    setAddModal(null)
+    loadStudents()
+  }
+
+  // Редактирование имени
+  async function saveName() {
+    if (!editName || !editName.full_name) return
+    const { error } = await supabase.from('users').update({ full_name: editName.full_name }).eq('id', editName.id)
+    if (error) { alert('Ошибка: ' + error.message); return }
+    setEditName(null)
+    setDetail(null)
+    loadStudents()
   }
 
   const attLabel = a => ({present:'Был',late:'Опоздал',absent:'Не был',cancelled:'Отменён'}[a]||'—')
@@ -59,7 +83,7 @@ export default function Students({ branch }) {
             </svg>
             <input className="s-input" style={{ paddingLeft:34 }} placeholder="Поиск по имени, телефону..." value={search} onChange={e=>setSearch(e.target.value)} />
           </div>
-          <button className="btn-primary">+ Добавить</button>
+          <button className="btn-primary" onClick={() => setAddModal({ full_name: '', phone: '' })}>+ Добавить</button>
         </div>
 
         {loading ? <Spinner /> : filtered.length === 0 ? (
@@ -97,6 +121,13 @@ export default function Students({ branch }) {
       {detail && (
         <DetailPanel title={detail.full_name || 'Ученик'} onClose={()=>setDetail(null)}>
           <Section title="Контакты">
+            <InfoRow label="Имя" value={
+              <span style={{ display:'flex', alignItems:'center', gap:6 }}>
+                {detail.full_name || '—'}
+                <button onClick={() => setEditName({ id: detail.id, full_name: detail.full_name })}
+                  style={{ background:'none', border:'none', cursor:'pointer', fontSize:14, padding:0 }}>✏️</button>
+              </span>
+            } />
             <InfoRow label="Телефон" value={detail.phone} />
             <InfoRow label="Telegram" value={detail.username ? `@${detail.username}` : '—'} />
             <InfoRow label="Telegram ID" value={detail.telegram_id} />
@@ -125,6 +156,36 @@ export default function Students({ branch }) {
           </Section>
         </DetailPanel>
       )}
+
+      {/* Add Student Modal */}
+      {addModal && (
+        <Modal title="Новый ученик" onClose={() => setAddModal(null)}>
+          <Field label="Имя">
+            <input className="s-input" value={addModal.full_name} onChange={e => setAddModal({...addModal, full_name: e.target.value})} placeholder="Имя ученика" autoFocus />
+          </Field>
+          <Field label="Телефон">
+            <input className="s-input" value={addModal.phone} onChange={e => setAddModal({...addModal, phone: e.target.value})} placeholder="+998 90 123 45 67" />
+          </Field>
+          <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
+            <button className="btn-secondary" onClick={() => setAddModal(null)}>Отмена</button>
+            <button className="btn-primary" onClick={addStudent}>Добавить</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Edit Name Modal */}
+      {editName && (
+        <Modal title="Редактировать имя" onClose={() => setEditName(null)} width={380}>
+          <Field label="Имя">
+            <input className="s-input" value={editName.full_name} onChange={e => setEditName({...editName, full_name: e.target.value})} autoFocus />
+          </Field>
+          <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
+            <button className="btn-secondary" onClick={() => setEditName(null)}>Отмена</button>
+            <button className="btn-primary" onClick={saveName}>Сохранить</button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
+
