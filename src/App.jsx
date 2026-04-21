@@ -72,8 +72,8 @@ export default function App() {
       case 'schedule': return <Schedule branch={branch} branches={branches} />
       case 'students': return <Students branch={branch} />
       case 'teachers': return <Teachers branch={branch} />
-      case 'approve': return <Approve />
-      case 'analytics': return <Analytics />
+      case 'approve': return <Approve branch={branch} />
+      case 'analytics': return <Analytics branch={branch} />
       case 'finance': return <Finance />
       case 'broadcast': return <Broadcast />
       case 'settings': return <Settings />
