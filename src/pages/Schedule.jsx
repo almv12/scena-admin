@@ -1,6 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
-import { instrColor, INSTRUMENTS, HOURS, formatDate, dateStr, addDays, Avatar, Modal, Field, Spinner } from '../components/UI'
+import { instrColor, INSTRUMENTS, formatDate, dateStr, addDays, Avatar, Modal, Field, Spinner } from '../components/UI'
+
+// 30-минутные слоты с 8:00 до 21:00
+const SLOTS = []
+for (let h = 8; h <= 21; h++) {
+  SLOTS.push({ hour: h, min: 0, label: `${h}:00`, value: h * 60 })
+  if (h < 21) SLOTS.push({ hour: h, min: 30, label: `${h}:30`, value: h * 60 + 30 })
+}
+
+function timeToMinutes(time) {
+  if (!time) return 0
+  const parts = time.split(':')
+  return parseInt(parts[0]) * 60 + parseInt(parts[1] || 0)
+}
 
 export default function Schedule({ branch, branches }) {
   const [date, setDate] = useState(new Date())
@@ -11,7 +24,7 @@ export default function Schedule({ branch, branches }) {
   const [modal, setModal] = useState(null)
   const [editModal, setEditModal] = useState(null)
 
-  const branchNames = branches.length > 0
+  const branchNames = branches && branches.length > 0
     ? branches.map(b => b.name)
     : ['Ганди 44', 'Ганди 29']
 
@@ -27,7 +40,6 @@ export default function Schedule({ branch, branches }) {
     const ds = dateStr(date)
     const dow = date.getDay()
 
-    // Фильтруем по start_date (не lesson_date!) + repeat_weekly
     const { data: sch } = await supabase.from('schedule').select('*')
       .or(`start_date.eq.${ds},and(repeat_weekly.eq.true,day_of_week.eq.${dow})`)
       .neq('status','cancelled')
@@ -42,13 +54,13 @@ export default function Schedule({ branch, branches }) {
 
   useEffect(() => { load() }, [load])
 
-  function openCreate(teacherId, hour) {
+  function openCreate(teacherId, slot) {
     setModal({
       teacher_id: teacherId || '',
       student_id: '',
       student_name: '',
       instrument: '',
-      lesson_time: hour !== undefined ? `${String(hour).padStart(2,'0')}:00` : '',
+      lesson_time: slot ? slot.label : '',
       lesson_duration: 60,
       lesson_type: 'individual',
       branch_name: branch !== 'all' ? branch : (branchNames[0] || 'Ганди 44'),
@@ -125,11 +137,32 @@ export default function Schedule({ branch, branches }) {
     load()
   }
 
-  const getLessonAt = (tid, h) => lessons.find(l =>
-    l.teacher_id === tid && parseInt((l.lesson_time||'').split(':')[0]) === h
-  )
+  // Найти урок который начинается в этом слоте
+  function getLessonAtSlot(tid, slot) {
+    return lessons.find(l => {
+      if (l.teacher_id !== tid) return false
+      const lMin = timeToMinutes(l.lesson_time)
+      return lMin === slot.value
+    })
+  }
 
-  // Модалка (общая для создания и редактирования)
+  // Проверить: этот слот занят уроком который начался раньше (span)
+  function isSlotOccupied(tid, slot) {
+    return lessons.find(l => {
+      if (l.teacher_id !== tid) return false
+      const lStart = timeToMinutes(l.lesson_time)
+      const lEnd = lStart + (l.lesson_duration || 60)
+      return slot.value > lStart && slot.value < lEnd
+    })
+  }
+
+  // Сколько 30-мин слотов занимает урок
+  function lessonSpan(lesson) {
+    const dur = lesson.lesson_duration || 60
+    return Math.max(1, Math.ceil(dur / 30))
+  }
+
+  // Модалка (общая)
   function renderModal(data, setData, title, onSave, extraButtons) {
     return (
       <Modal title={title} onClose={() => setData(null)}>
@@ -211,14 +244,22 @@ export default function Schedule({ branch, branches }) {
 
       {loading ? <Spinner /> : (
         <div className="s-card" style={{ overflow:'auto' }}>
-          {/* Time header */}
-          <div style={{ display:'grid', gridTemplateColumns:'140px repeat(14,1fr)', borderBottom:'2px solid var(--line)' }}>
-            <div style={{ padding:'10px 14px', fontSize:10.5, fontWeight:700, color:'var(--ink-muted)', letterSpacing:0.5, textTransform:'uppercase', background:'var(--bg-alt)' }}>
+          {/* Time header — 30 мин слоты */}
+          <div style={{ display:'grid', gridTemplateColumns:`140px repeat(${SLOTS.length},minmax(48px,1fr))`, borderBottom:'2px solid var(--line)' }}>
+            <div style={{ padding:'10px 14px', fontSize:10.5, fontWeight:700, color:'var(--ink-muted)', letterSpacing:0.5, textTransform:'uppercase', background:'var(--bg-alt)', position:'sticky', left:0, zIndex:2 }}>
               Педагог
             </div>
-            {HOURS.map(h => (
-              <div key={h} style={{ padding:'10px 0', fontSize:10, fontWeight:600, color:'var(--ink-muted)', textAlign:'center', borderLeft:'1px solid var(--line-soft)', background:'var(--bg-alt)' }}>
-                {h}:00
+            {SLOTS.map((slot, i) => (
+              <div key={i} style={{
+                padding:'10px 0', fontSize: slot.min === 0 ? 10 : 8.5,
+                fontWeight: slot.min === 0 ? 600 : 400,
+                color: slot.min === 0 ? 'var(--ink-muted)' : 'var(--ink-faint)',
+                textAlign:'center',
+                borderLeft: slot.min === 0 ? '1px solid var(--line-soft)' : '1px solid var(--line-soft)',
+                background:'var(--bg-alt)',
+                opacity: slot.min === 0 ? 1 : 0.7
+              }}>
+                {slot.label}
               </div>
             ))}
           </div>
@@ -229,35 +270,44 @@ export default function Schedule({ branch, branches }) {
               Педагоги не найдены. Добавьте педагогов в систему.
             </div>
           ) : teachers.map((teacher, ri) => (
-            <div key={teacher.id} style={{ display:'grid', gridTemplateColumns:'140px repeat(14,1fr)', borderBottom:'1px solid var(--line-soft)' }}>
+            <div key={teacher.id} style={{ display:'grid', gridTemplateColumns:`140px repeat(${SLOTS.length},minmax(48px,1fr))`, borderBottom:'1px solid var(--line-soft)' }}>
               <div style={{
                 padding:'0 14px', fontSize:13, fontWeight:600,
                 display:'flex', alignItems:'center', gap:8,
-                background: ri%2===0 ? 'transparent' : 'rgba(239,238,233,0.3)'
+                background: ri%2===0 ? 'transparent' : 'rgba(239,238,233,0.3)',
+                position:'sticky', left:0, zIndex:1
               }}>
                 <Avatar name={teacher.full_name} size={26} color={instrColor(null)} />
                 <span style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
                   {teacher.full_name || '—'}
                 </span>
               </div>
-              {HOURS.map(h => {
-                const lesson = getLessonAt(teacher.id, h)
+              {SLOTS.map((slot, si) => {
+                const lesson = getLessonAtSlot(teacher.id, slot)
+                const occupied = !lesson && isSlotOccupied(teacher.id, slot)
+
+                // Если слот занят уроком из предыдущего — не рендерим ячейку (span уже покрыл)
+                if (occupied) return null
+
+                const span = lesson ? lessonSpan(lesson) : 1
+
                 return (
-                  <div key={h}
-                    onClick={() => lesson ? openEdit(lesson) : openCreate(teacher.id, h)}
+                  <div key={si}
+                    onClick={() => lesson ? openEdit(lesson) : (!occupied && openCreate(teacher.id, slot))}
                     style={{
-                      position:'relative', minHeight:50,
-                      borderLeft:'1px solid var(--line-soft)',
+                      position:'relative', minHeight:44,
+                      borderLeft: slot.min === 0 ? '1px solid var(--line-soft)' : '1px dashed var(--line-soft)',
                       background: ri%2===0 ? 'transparent' : 'rgba(239,238,233,0.3)',
-                      cursor:'pointer', transition:'0.15s'
+                      cursor: 'pointer', transition:'0.15s',
+                      gridColumn: lesson ? `span ${span}` : undefined,
                     }}
                     onMouseEnter={e => { if(!lesson) e.currentTarget.style.background='var(--gold-muted)' }}
                     onMouseLeave={e => { e.currentTarget.style.background = ri%2===0 ? 'transparent' : 'rgba(239,238,233,0.3)' }}
                   >
                     {lesson && (
                       <div style={{
-                        position:'absolute', top:3, left:2, right:2, bottom:3,
-                        borderRadius:5, padding:'4px 7px',
+                        position:'absolute', top:2, left:2, right:2, bottom:2,
+                        borderRadius:5, padding:'3px 6px',
                         background: instrColor(lesson.instrument), color:'#fff',
                         fontSize:10, fontWeight:600, overflow:'hidden',
                         display:'flex', flexDirection:'column', justifyContent:'center',
@@ -266,8 +316,10 @@ export default function Schedule({ branch, branches }) {
                         <div style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', fontWeight:700, fontSize:10.5 }}>
                           {lesson.student_name || '—'}
                         </div>
-                        <div style={{ opacity:0.8, fontSize:9 }}>
-                          {lesson.instrument || ''}{lesson.lesson_type==='group'?' • Гр.':''}
+                        <div style={{ opacity:0.85, fontSize:9, display:'flex', gap:4 }}>
+                          <span>{lesson.instrument || ''}</span>
+                          {lesson.lesson_type==='group' && <span>• Гр.</span>}
+                          <span>• {lesson.lesson_duration || 60}м</span>
                         </div>
                       </div>
                     )}
@@ -301,3 +353,4 @@ export default function Schedule({ branch, branches }) {
     </div>
   )
 }
+
