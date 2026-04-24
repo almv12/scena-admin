@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { supabase } from './lib/supabase'
+import { useAdminRole } from './lib/useRole'
 import Sidebar from './components/Sidebar'
 import TopBar from './components/TopBar'
 import Login from './pages/Login'
@@ -22,6 +23,9 @@ export default function App() {
   const [branch, setBranch] = useState('all')
   const [pendingCount, setPendingCount] = useState(0)
   const [branches, setBranches] = useState([])
+
+  // Роль админа
+  const { role, branchId, canAccess, canView } = useAdminRole(user?.email)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -46,6 +50,23 @@ export default function App() {
       .then(({ count }) => setPendingCount(count || 0))
   }, [user, page])
 
+  // Если branch_admin — автоматически фильтровать по своему филиалу
+  useEffect(() => {
+    if (branchId && branches.length > 0) {
+      const myBranch = branches.find(b => b.id === branchId)
+      if (myBranch) setBranch(myBranch.name)
+    }
+  }, [branchId, branches])
+
+  // Если пользователь пытается открыть страницу без доступа — редирект
+  useEffect(() => {
+    if (!canAccess(page)) {
+      const allowed = ['schedule', 'students', 'teachers', 'approve', 'crm', 'tasks', 'analytics', 'finance', 'broadcast', 'settings']
+      const firstAllowed = allowed.find(p => canAccess(p)) || 'schedule'
+      setPage(firstAllowed)
+    }
+  }, [page, role])
+
   async function handleLogout() {
     await supabase.auth.signOut()
     setUser(null)
@@ -62,6 +83,7 @@ export default function App() {
   if (!user) return <Login onLogin={setUser} />
 
   function renderPage() {
+    if (!canAccess(page)) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--ink-muted)' }}>У вас нет доступа к этой странице</div>
     switch(page) {
       case 'schedule': return <Schedule branch={branch} branches={branches} />
       case 'students': return <Students branch={branch} />
@@ -79,9 +101,17 @@ export default function App() {
 
   return (
     <div style={{ display:'flex', height:'100vh', overflow:'hidden', background:'var(--bg)' }}>
-      <Sidebar page={page} setPage={setPage} collapsed={collapsed} setCollapsed={setCollapsed} user={user} pendingCount={pendingCount} onLogout={handleLogout} />
+      <Sidebar
+        page={page} setPage={setPage}
+        collapsed={collapsed} setCollapsed={setCollapsed}
+        user={user} pendingCount={pendingCount}
+        onLogout={handleLogout}
+        canAccess={canAccess}
+        role={role}
+      />
       <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
-        <TopBar page={page} branch={branch} setBranch={setBranch} branches={branches} />
+        <TopBar page={page} branch={branch} setBranch={setBranch} branches={branches}
+          role={role} branchId={branchId} />
         <div style={{ flex:1, overflowY:'auto', padding:22 }}>
           {renderPage()}
         </div>

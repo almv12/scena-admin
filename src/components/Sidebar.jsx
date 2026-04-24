@@ -13,6 +13,13 @@ const NAV_ITEMS = [
   { id:'settings', label:'Настройки', icon:'settings' },
 ]
 
+const ROLE_LABELS = {
+  director: 'Директор',
+  branch_admin: 'Админ филиала',
+  accountant: 'Финансист',
+  manager: 'Менеджер',
+}
+
 const iconPaths = {
   calendar: <><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></>,
   users: <><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2M16 3.13a4 4 0 010 7.75M21 21v-2a4 4 0 00-3-3.85"/></>,
@@ -34,8 +41,13 @@ function NavIcon({ type, color }) {
   )
 }
 
-export default function Sidebar({ page, setPage, collapsed, setCollapsed, user, pendingCount, onLogout }) {
+export default function Sidebar({ page, setPage, collapsed, setCollapsed, user, pendingCount, onLogout, canAccess, role }) {
   const sW = collapsed ? 60 : 210
+
+  // Фильтруем пункты меню по роли
+  const visibleItems = canAccess
+    ? NAV_ITEMS.filter(n => canAccess(n.id))
+    : NAV_ITEMS
 
   return (
     <div style={{
@@ -62,7 +74,7 @@ export default function Sidebar({ page, setPage, collapsed, setCollapsed, user, 
       </div>
 
       <nav style={{ flex:1, padding:'8px 6px', overflowY:'auto' }}>
-        {NAV_ITEMS.map(n => {
+        {visibleItems.map(n => {
           const active = page === n.id
           const color = active ? 'var(--gold)' : 'rgba(255,255,255,0.45)'
           return (
@@ -114,7 +126,7 @@ export default function Sidebar({ page, setPage, collapsed, setCollapsed, user, 
             <div style={{ color:'#fff', fontSize:12, fontWeight:600, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
               {user?.email || 'Admin'}
             </div>
-            <div style={{ color:'rgba(255,255,255,0.35)', fontSize:10 }}>Директор</div>
+            <div style={{ color:'rgba(255,255,255,0.35)', fontSize:10 }}>{ROLE_LABELS[role] || 'Директор'}</div>
           </div>
         )}
         <button onClick={onLogout} title="Выйти" style={{
