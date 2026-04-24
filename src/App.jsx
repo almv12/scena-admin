@@ -11,6 +11,8 @@ import Analytics from './pages/Analytics'
 import Finance from './pages/Finance'
 import Broadcast from './pages/Broadcast'
 import Settings from './pages/Settings'
+import CRM from './pages/CRM'
+import Tasks from './pages/Tasks'
 
 export default function App() {
   const [user, setUser] = useState(null)
@@ -21,7 +23,6 @@ export default function App() {
   const [pendingCount, setPendingCount] = useState(0)
   const [branches, setBranches] = useState([])
 
-  // Check auth on load
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user || null)
@@ -33,14 +34,12 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Load branches from DB
   useEffect(() => {
     if (!user) return
     supabase.from('branches').select('*').eq('is_active', true).order('name')
       .then(({ data }) => setBranches(data || []))
   }, [user])
 
-  // Load pending count for badge
   useEffect(() => {
     if (!user) return
     supabase.from('conducted_lessons').select('id', { count:'exact', head:true }).eq('status','pending')
@@ -52,7 +51,6 @@ export default function App() {
     setUser(null)
   }
 
-  // Auth checking spinner
   if (checking) {
     return (
       <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'var(--bg)' }}>
@@ -61,18 +59,16 @@ export default function App() {
     )
   }
 
-  // Not logged in
-  if (!user) {
-    return <Login onLogin={setUser} />
-  }
+  if (!user) return <Login onLogin={setUser} />
 
-  // Render current page
   function renderPage() {
     switch(page) {
       case 'schedule': return <Schedule branch={branch} branches={branches} />
       case 'students': return <Students branch={branch} />
       case 'teachers': return <Teachers branch={branch} />
       case 'approve': return <Approve branch={branch} />
+      case 'crm': return <CRM />
+      case 'tasks': return <Tasks />
       case 'analytics': return <Analytics branch={branch} />
       case 'finance': return <Finance />
       case 'broadcast': return <Broadcast />
@@ -83,15 +79,7 @@ export default function App() {
 
   return (
     <div style={{ display:'flex', height:'100vh', overflow:'hidden', background:'var(--bg)' }}>
-      <Sidebar
-        page={page}
-        setPage={setPage}
-        collapsed={collapsed}
-        setCollapsed={setCollapsed}
-        user={user}
-        pendingCount={pendingCount}
-        onLogout={handleLogout}
-      />
+      <Sidebar page={page} setPage={setPage} collapsed={collapsed} setCollapsed={setCollapsed} user={user} pendingCount={pendingCount} onLogout={handleLogout} />
       <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
         <TopBar page={page} branch={branch} setBranch={setBranch} branches={branches} />
         <div style={{ flex:1, overflowY:'auto', padding:22 }}>

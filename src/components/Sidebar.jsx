@@ -5,13 +5,14 @@ const NAV_ITEMS = [
   { id:'students', label:'Ученики', icon:'users' },
   { id:'teachers', label:'Педагоги', icon:'teacher' },
   { id:'approve', label:'Проверка', icon:'check' },
+  { id:'crm', label:'CRM', icon:'funnel' },
+  { id:'tasks', label:'Задачи', icon:'tasks' },
   { id:'analytics', label:'Аналитика', icon:'chart' },
   { id:'finance', label:'Финансы', icon:'finance' },
   { id:'broadcast', label:'Рассылка', icon:'send' },
   { id:'settings', label:'Настройки', icon:'settings' },
 ]
 
-// SVG icons as path data for compactness
 const iconPaths = {
   calendar: <><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></>,
   users: <><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2M16 3.13a4 4 0 010 7.75M21 21v-2a4 4 0 00-3-3.85"/></>,
@@ -21,6 +22,8 @@ const iconPaths = {
   finance: <><circle cx="12" cy="12" r="10"/><path d="M12 6v12M8 9.5h5.5a2.5 2.5 0 010 5H8"/></>,
   send: <><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></>,
   settings: <><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></>,
+  funnel: <><path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/></>,
+  tasks: <><path d="M9 11l3 3 8-8"/><rect x="3" y="3" width="18" height="18" rx="2"/></>,
 }
 
 function NavIcon({ type, color }) {
@@ -40,7 +43,6 @@ export default function Sidebar({ page, setPage, collapsed, setCollapsed, user, 
       display:'flex', flexDirection:'column', transition:'width 0.2s',
       borderRight:'1px solid rgba(255,255,255,0.04)'
     }}>
-      {/* Logo */}
       <div style={{
         padding: collapsed ? '16px 8px' : '16px 14px',
         display:'flex', alignItems:'center', gap:10,
@@ -59,7 +61,6 @@ export default function Sidebar({ page, setPage, collapsed, setCollapsed, user, 
         </button>
       </div>
 
-      {/* Navigation */}
       <nav style={{ flex:1, padding:'8px 6px', overflowY:'auto' }}>
         {NAV_ITEMS.map(n => {
           const active = page === n.id
@@ -97,7 +98,6 @@ export default function Sidebar({ page, setPage, collapsed, setCollapsed, user, 
         })}
       </nav>
 
-      {/* User */}
       <div style={{
         padding:'10px', borderTop:'1px solid rgba(255,255,255,0.05)',
         display:'flex', alignItems:'center', gap:8
@@ -129,3 +129,4 @@ export default function Sidebar({ page, setPage, collapsed, setCollapsed, user, 
     </div>
   )
 }
+

@@ -2,12 +2,12 @@ import React from 'react'
 
 const TITLES = {
   schedule:'Расписание', students:'Ученики', teachers:'Педагоги',
-  approve:'Проверка уроков', analytics:'Аналитика', finance:'Финансы',
+  approve:'Проверка уроков', crm:'CRM / Воронка', tasks:'Задачи',
+  analytics:'Аналитика', finance:'Финансы',
   broadcast:'Рассылка', settings:'Настройки'
 }
 
 export default function TopBar({ page, branch, setBranch, branches }) {
-  // Используем филиалы из БД, а если пусто — фоллбэк
   const branchList = branches && branches.length > 0
     ? branches.map(b => b.name)
     : ['Ганди 44', 'Ганди 29']
@@ -25,7 +25,6 @@ export default function TopBar({ page, branch, setBranch, branches }) {
           <option value="all">Все филиалы</option>
           {branchList.map(b => <option key={b} value={b}>{b}</option>)}
         </select>
-        {/* Notification bell */}
         <div style={{ position:'relative', cursor:'pointer', color:'var(--ink-muted)' }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
             <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/>
