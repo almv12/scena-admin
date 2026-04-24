@@ -94,6 +94,56 @@ export default function Finance() {
     loadData()
   }
 
+  // Экспорт зарплат в CSV
+  function exportSalaryCSV() {
+    const headers = ['Педагог', 'Инд. уроков', 'Групп. уроков', 'Ставка инд.', 'Ставка гр.', 'Итого (сум)']
+    const rows = teachers.map(t => {
+      const rate = getRate(t.id)
+      const sal = calcSalary(t.id)
+      return [
+        t.full_name || '',
+        sal.indiv,
+        sal.group,
+        rate?.individual_rate || 0,
+        rate?.group_rate || 0,
+        sal.total,
+      ]
+    })
+    const csv = [headers, ...rows].map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n')
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'salary_' + periodLabel + '_' + new Date().toISOString().slice(0, 10) + '.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  // Экспорт истории выплат в CSV
+  function exportPaymentsCSV() {
+    const headers = ['Педагог', 'Период', 'Инд.', 'Груп.', 'Сумма', 'Статус', 'Дата оплаты']
+    const rows = payments.map(p => {
+      const teacher = teachers.find(t => t.id === p.teacher_id)
+      return [
+        teacher?.full_name || '',
+        p.period_month + '/' + p.period_year,
+        p.lessons_individual || 0,
+        p.lessons_group || 0,
+        p.amount || 0,
+        p.status === 'paid' ? 'Оплачено' : 'Ожидает',
+        p.paid_at ? new Date(p.paid_at).toLocaleDateString('ru') : '',
+      ]
+    })
+    const csv = [headers, ...rows].map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n')
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'payments_' + new Date().toISOString().slice(0, 10) + '.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const totalSalary = teachers.reduce((sum, t) => sum + calcSalary(t.id).total, 0)
   const periodLabel = period === 'week' ? 'неделю' : 'месяц'
 
@@ -130,6 +180,7 @@ export default function Finance() {
             style={{ opacity: generating ? 0.6 : 1 }}>
             {generating ? 'Формирование...' : 'Сформировать зарплату'}
           </button>
+          <button className="btn-secondary" onClick={exportSalaryCSV} title="Экспорт в Excel">📥 Excel</button>
         </div>
 
         {teachers.length === 0 ? (
@@ -182,8 +233,9 @@ export default function Finance() {
       {/* Payments History */}
       {payments.length > 0 && (
         <div className="s-card" style={{ marginTop:20 }}>
-          <div style={{ padding:'14px 18px', borderBottom:'1px solid var(--line)', fontSize:14, fontWeight:700 }}>
-            История выплат
+          <div style={{ padding:'14px 18px', borderBottom:'1px solid var(--line)', fontSize:14, fontWeight:700, display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <span>История выплат</span>
+            <button className="btn-secondary" onClick={exportPaymentsCSV} style={{ padding:'4px 12px', fontSize:11 }}>📥 Excel</button>
           </div>
           <div style={{ overflowX:'auto' }}>
             <table className="s-table">
