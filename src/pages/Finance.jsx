@@ -114,9 +114,11 @@ export default function Finance() {
   async function saveIncome() {
     if (!incomeModal || !incomeModal.amount) return
     const student = students.find(s => s.id === incomeModal.student_id)
+    const studentName = student?.full_name || incomeModal.student_name || ''
+
     const { error } = await supabase.from('income').insert({
       student_id: incomeModal.student_id || null,
-      student_name: student?.full_name || incomeModal.student_name || '',
+      student_name: studentName,
       amount: parseInt(incomeModal.amount),
       payment_method: incomeModal.payment_method || 'cash',
       package_name: incomeModal.package_name || null,
@@ -127,7 +129,7 @@ export default function Finance() {
     })
     if (error) { alert('Ошибка: ' + error.message); return }
 
-    // Если указаны уроки — пополнить баланс
+    // Если указаны уроки и выбран ученик из списка — пополнить баланс
     if (incomeModal.student_id && incomeModal.lessons_count) {
       const { data: st } = await supabase.from('users').select('lessons_balance').eq('id', incomeModal.student_id).single()
       if (st) {
@@ -479,12 +481,17 @@ export default function Finance() {
       {/* Добавить доход */}
       {incomeModal && (
         <Modal title="Добавить оплату" onClose={() => setIncomeModal(null)}>
-          <Field label="Ученик">
-            <select className="s-input" value={incomeModal.student_id} onChange={e => setIncomeModal({...incomeModal, student_id: e.target.value})}>
-              <option value="">Выберите...</option>
+          <Field label="Ученик (из системы)">
+            <select className="s-input" value={incomeModal.student_id} onChange={e => setIncomeModal({...incomeModal, student_id: e.target.value, student_name: ''})}>
+              <option value="">— выберите или введите имя ниже —</option>
               {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
             </select>
           </Field>
+          {!incomeModal.student_id && (
+            <Field label="Или введите имя вручную">
+              <input className="s-input" value={incomeModal.student_name || ''} onChange={e => setIncomeModal({...incomeModal, student_name: e.target.value})} placeholder="Имя ученика (если нет в списке)" />
+            </Field>
+          )}
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
             <Field label="Сумма (сум)"><input className="s-input" type="number" value={incomeModal.amount} onChange={e => setIncomeModal({...incomeModal, amount: e.target.value})} placeholder="400000" /></Field>
             <Field label="Способ оплаты">
