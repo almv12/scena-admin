@@ -21,6 +21,7 @@ export default function Tasks() {
   const [staff, setStaff] = useState([])
   const [loading, setLoading] = useState(true)
   const [addModal, setAddModal] = useState(null)
+  const [editModal, setEditModal] = useState(null)
   const [filterStatus, setFilterStatus] = useState('active') // active | done | all
   const [filterAssignee, setFilterAssignee] = useState('')
 
@@ -68,6 +69,20 @@ export default function Tasks() {
   async function deleteTask(taskId) {
     if (!confirm('Удалить задачу?')) return
     await supabase.from('tasks').delete().eq('id', taskId)
+    load()
+  }
+
+  async function updateTask() {
+    if (!editModal || !editModal.title) return
+    const { error } = await supabase.from('tasks').update({
+      title: editModal.title,
+      description: editModal.description || null,
+      assigned_to: editModal.assigned_to || null,
+      priority: editModal.priority || 'medium',
+      due_date: editModal.due_date || null,
+    }).eq('id', editModal.id)
+    if (error) { alert('Ошибка: ' + error.message); return }
+    setEditModal(null)
     load()
   }
 
@@ -161,6 +176,11 @@ export default function Tasks() {
                     <>
                       {task.status === 'open' && <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: 10 }} onClick={() => changeStatus(task.id, 'in_progress')}>▶ В работу</button>}
                       <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: 10, color: 'var(--green)' }} onClick={() => changeStatus(task.id, 'done')}>✓</button>
+                      <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: 10 }} onClick={() => setEditModal({
+                        id: task.id, title: task.title, description: task.description || '',
+                        assigned_to: task.assigned_to || '', priority: task.priority || 'medium',
+                        due_date: task.due_date || ''
+                      })}>✏️</button>
                     </>
                   )}
                   <button className="btn-secondary" style={{ padding: '4px 8px', fontSize: 10, color: 'var(--red)' }} onClick={() => deleteTask(task.id)}>✕</button>
@@ -202,6 +222,39 @@ export default function Tasks() {
           </div>
         </Modal>
       )}
+
+      {/* Edit Modal */}
+      {editModal && (
+        <Modal title="Редактировать задачу" onClose={() => setEditModal(null)}>
+          <Field label="Задача">
+            <input className="s-input" value={editModal.title} onChange={e => setEditModal({ ...editModal, title: e.target.value })} autoFocus />
+          </Field>
+          <Field label="Описание">
+            <input className="s-input" value={editModal.description} onChange={e => setEditModal({ ...editModal, description: e.target.value })} />
+          </Field>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <Field label="Назначить">
+              <select className="s-input" value={editModal.assigned_to} onChange={e => setEditModal({ ...editModal, assigned_to: e.target.value })}>
+                <option value="">Не назначено</option>
+                {staff.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+              </select>
+            </Field>
+            <Field label="Приоритет">
+              <select className="s-input" value={editModal.priority} onChange={e => setEditModal({ ...editModal, priority: e.target.value })}>
+                {PRIORITIES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+              </select>
+            </Field>
+          </div>
+          <Field label="Дедлайн">
+            <input className="s-input" type="date" value={editModal.due_date} onChange={e => setEditModal({ ...editModal, due_date: e.target.value })} />
+          </Field>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+            <button className="btn-secondary" onClick={() => setEditModal(null)}>Отмена</button>
+            <button className="btn-primary" onClick={updateTask}>Сохранить</button>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }
+

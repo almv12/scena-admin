@@ -2,17 +2,38 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { instrColor, INSTRUMENTS, formatDate, dateStr, addDays, Avatar, Modal, Field, Spinner } from '../components/UI'
 
-// 30-минутные слоты с 8:00 до 21:00
-const SLOTS = []
-for (let h = 8; h <= 21; h++) {
-  SLOTS.push({ hour: h, min: 0, label: `${h}:00`, value: h * 60 })
-  if (h < 21) SLOTS.push({ hour: h, min: 30, label: `${h}:30`, value: h * 60 + 30 })
+// 15-минутные слоты для точного позиционирования
+const START_HOUR = 8
+const END_HOUR = 21
+const TOTAL_SLOTS = (END_HOUR - START_HOUR) * 2 // 30-мин слоты для header
+const SLOT_WIDTH = 60 // px за 30 мин
+
+// Часовые метки для header
+const HOURS_LABELS = []
+for (let h = START_HOUR; h <= END_HOUR; h++) {
+  HOURS_LABELS.push(h)
 }
 
 function timeToMinutes(time) {
   if (!time) return 0
-  const parts = time.split(':')
-  return parseInt(parts[0]) * 60 + parseInt(parts[1] || 0)
+  const p = time.split(':')
+  return parseInt(p[0]) * 60 + parseInt(p[1] || 0)
+}
+
+function minutesToTime(min) {
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`
+}
+
+// Позиция урока в пикселях (от начала сетки)
+function lessonLeft(time) {
+  const min = timeToMinutes(time)
+  return ((min - START_HOUR * 60) / 30) * SLOT_WIDTH
+}
+
+function lessonWidth(duration) {
+  return ((duration || 60) / 30) * SLOT_WIDTH - 4
 }
 
 export default function Schedule({ branch, branches }) {
@@ -39,28 +60,41 @@ export default function Schedule({ branch, branches }) {
 
     const ds = dateStr(date)
     const dow = date.getDay()
-
     const { data: sch } = await supabase.from('schedule').select('*')
       .or(`start_date.eq.${ds},and(repeat_weekly.eq.true,day_of_week.eq.${dow})`)
       .neq('status','cancelled')
 
-    let filtered = sch || []
-    if (branch && branch !== 'all') {
-      filtered = filtered.filter(l => l.branch_name === branch)
-    }
-    setLessons(filtered)
+    setLessons(sch || [])
     setLoading(false)
-  }, [date, branch])
+  }, [date])
 
   useEffect(() => { load() }, [load])
 
-  function openCreate(teacherId, slot) {
+  // Фильтр уроков по филиалу
+  const filteredLessons = branch && branch !== 'all'
+    ? lessons.filter(l => l.branch_name === branch)
+    : lessons
+
+  // Фильтр педагогов: показывать только тех у кого есть уроки или привязаны к филиалу
+  const filteredTeachers = branch && branch !== 'all'
+    ? teachers.filter(t => {
+        // Показать если у педагога есть уроки в этом филиале
+        const hasLessons = filteredLessons.some(l => l.teacher_id === t.id)
+        return hasLessons || !branch // или если филиал не выбран
+      })
+    : teachers
+
+  // Если после фильтра пусто — показать всех (чтобы можно было добавлять)
+  const displayTeachers = filteredTeachers.length > 0 ? filteredTeachers : teachers
+
+  function openCreate(teacherId, minuteOfDay) {
+    const time = minuteOfDay ? minutesToTime(minuteOfDay) : ''
     setModal({
       teacher_id: teacherId || '',
       student_id: '',
       student_name: '',
       instrument: '',
-      lesson_time: slot ? slot.label : '',
+      lesson_time: time,
       lesson_duration: 60,
       lesson_type: 'individual',
       branch_name: branch !== 'all' ? branch : (branchNames[0] || 'Ганди 44'),
@@ -137,32 +171,25 @@ export default function Schedule({ branch, branches }) {
     load()
   }
 
-  // Найти урок который начинается в этом слоте
-  function getLessonAtSlot(tid, slot) {
-    return lessons.find(l => {
-      if (l.teacher_id !== tid) return false
-      const lMin = timeToMinutes(l.lesson_time)
-      return lMin === slot.value
-    })
+  // Уроки для конкретного педагога
+  function teacherLessons(tid) {
+    return filteredLessons.filter(l => l.teacher_id === tid)
   }
 
-  // Проверить: этот слот занят уроком который начался раньше (span)
-  function isSlotOccupied(tid, slot) {
-    return lessons.find(l => {
-      if (l.teacher_id !== tid) return false
-      const lStart = timeToMinutes(l.lesson_time)
-      const lEnd = lStart + (l.lesson_duration || 60)
-      return slot.value > lStart && slot.value < lEnd
-    })
+  // Клик на пустую область — вычисляем время по X координатe
+  function handleRowClick(e, teacherId) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const minuteOffset = Math.floor(x / SLOT_WIDTH) * 30
+    const minuteOfDay = START_HOUR * 60 + minuteOffset
+    if (minuteOfDay >= START_HOUR * 60 && minuteOfDay < END_HOUR * 60) {
+      openCreate(teacherId, minuteOfDay)
+    }
   }
 
-  // Сколько 30-мин слотов занимает урок
-  function lessonSpan(lesson) {
-    const dur = lesson.lesson_duration || 60
-    return Math.max(1, Math.ceil(dur / 30))
-  }
+  const gridWidth = HOURS_LABELS.length * SLOT_WIDTH * 2
 
-  // Модалка (общая)
+  // Модалка
   function renderModal(data, setData, title, onSave, extraButtons) {
     return (
       <Modal title={title} onClose={() => setData(null)}>
@@ -191,7 +218,7 @@ export default function Schedule({ branch, branches }) {
         </Field>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
           <Field label="Дата"><input className="s-input" type="date" value={data.start_date || ''} onChange={e => setData({...data, start_date: e.target.value})} /></Field>
-          <Field label="Время"><input className="s-input" type="time" value={data.lesson_time || ''} onChange={e => setData({...data, lesson_time: e.target.value})} /></Field>
+          <Field label="Время"><input className="s-input" type="time" value={data.lesson_time || ''} onChange={e => setData({...data, lesson_time: e.target.value})} step="300" /></Field>
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
           <Field label="Длительность">
@@ -237,97 +264,108 @@ export default function Schedule({ branch, branches }) {
           <button className="btn-secondary" onClick={() => setDate(addDays(date,1))} style={{padding:'5px 8px'}}>›</button>
           <button className="btn-secondary" onClick={() => setDate(new Date())}>Сегодня</button>
         </div>
-        <button className="btn-primary" onClick={() => openCreate()}>
-          + Новый урок
-        </button>
+        <button className="btn-primary" onClick={() => openCreate()}>+ Новый урок</button>
       </div>
 
       {loading ? <Spinner /> : (
-        <div className="s-card" style={{ overflow:'auto' }}>
-          {/* Time header — 30 мин слоты */}
-          <div style={{ display:'grid', gridTemplateColumns:`140px repeat(${SLOTS.length},minmax(48px,1fr))`, borderBottom:'2px solid var(--line)' }}>
-            <div style={{ padding:'10px 14px', fontSize:10.5, fontWeight:700, color:'var(--ink-muted)', letterSpacing:0.5, textTransform:'uppercase', background:'var(--bg-alt)', position:'sticky', left:0, zIndex:2 }}>
-              Педагог
+        <div className="s-card" style={{ overflowX:'auto', overflowY:'auto' }}>
+          {/* Header — часовые метки */}
+          <div style={{ display:'flex', borderBottom:'2px solid var(--line)' }}>
+            <div style={{ width:140, minWidth:140, flexShrink:0, padding:'10px 14px', fontSize:10.5, fontWeight:700, color:'var(--ink-muted)', background:'var(--bg-alt)', position:'sticky', left:0, zIndex:3 }}>
+              ПЕДАГОГ
             </div>
-            {SLOTS.map((slot, i) => (
-              <div key={i} style={{
-                padding:'10px 0', fontSize: slot.min === 0 ? 10 : 8.5,
-                fontWeight: slot.min === 0 ? 600 : 400,
-                color: slot.min === 0 ? 'var(--ink-muted)' : 'var(--ink-faint)',
-                textAlign:'center',
-                borderLeft: slot.min === 0 ? '1px solid var(--line-soft)' : '1px solid var(--line-soft)',
-                background:'var(--bg-alt)',
-                opacity: slot.min === 0 ? 1 : 0.7
-              }}>
-                {slot.label}
-              </div>
-            ))}
+            <div style={{ display:'flex', position:'relative' }}>
+              {HOURS_LABELS.map(h => (
+                <div key={h} style={{
+                  width: SLOT_WIDTH * 2, minWidth: SLOT_WIDTH * 2,
+                  padding:'10px 0', fontSize:10, fontWeight:600,
+                  color:'var(--ink-muted)', textAlign:'center',
+                  borderLeft:'1px solid var(--line-soft)', background:'var(--bg-alt)'
+                }}>
+                  {h}:00
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* Rows */}
-          {teachers.length === 0 ? (
-            <div style={{ padding:40, textAlign:'center', color:'var(--ink-muted)' }}>
-              Педагоги не найдены. Добавьте педагогов в систему.
-            </div>
-          ) : teachers.map((teacher, ri) => (
-            <div key={teacher.id} style={{ display:'grid', gridTemplateColumns:`140px repeat(${SLOTS.length},minmax(48px,1fr))`, borderBottom:'1px solid var(--line-soft)' }}>
-              <div style={{
-                padding:'0 14px', fontSize:13, fontWeight:600,
-                display:'flex', alignItems:'center', gap:8,
-                background: ri%2===0 ? 'transparent' : 'rgba(239,238,233,0.3)',
-                position:'sticky', left:0, zIndex:1
-              }}>
-                <Avatar name={teacher.full_name} size={26} color={instrColor(null)} />
-                <span style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-                  {teacher.full_name || '—'}
-                </span>
-              </div>
-              {SLOTS.map((slot, si) => {
-                const lesson = getLessonAtSlot(teacher.id, slot)
-                const occupied = !lesson && isSlotOccupied(teacher.id, slot)
+          {/* Rows — педагоги */}
+          {displayTeachers.length === 0 ? (
+            <div style={{ padding:40, textAlign:'center', color:'var(--ink-muted)' }}>Педагоги не найдены.</div>
+          ) : displayTeachers.map((teacher, ri) => {
+            const tLessons = teacherLessons(teacher.id)
+            const bgColor = ri % 2 === 0 ? 'transparent' : 'rgba(239,238,233,0.3)'
+            return (
+              <div key={teacher.id} style={{ display:'flex', borderBottom:'1px solid var(--line-soft)' }}>
+                {/* Имя педагога */}
+                <div style={{
+                  width:140, minWidth:140, flexShrink:0, padding:'0 14px',
+                  fontSize:13, fontWeight:600, display:'flex', alignItems:'center', gap:8,
+                  background: bgColor, position:'sticky', left:0, zIndex:2
+                }}>
+                  <Avatar name={teacher.full_name} size={26} color={instrColor(null)} />
+                  <span style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                    {teacher.full_name || '—'}
+                  </span>
+                </div>
 
-                // Если слот занят уроком из предыдущего — не рендерим ячейку (span уже покрыл)
-                if (occupied) return null
+                {/* Сетка + уроки (absolute positioning) */}
+                <div
+                  style={{ position:'relative', minHeight:50, width: HOURS_LABELS.length * SLOT_WIDTH * 2, background: bgColor, cursor:'pointer' }}
+                  onClick={(e) => {
+                    // Только если кликнули на пустое место (не на урок)
+                    if (e.target === e.currentTarget || e.target.dataset.empty) {
+                      handleRowClick(e, teacher.id)
+                    }
+                  }}
+                >
+                  {/* Вертикальные линии каждый час */}
+                  {HOURS_LABELS.map((h, i) => (
+                    <div key={h} data-empty="true" style={{
+                      position:'absolute', left: i * SLOT_WIDTH * 2, top:0, bottom:0,
+                      borderLeft:'1px solid var(--line-soft)', width:1, pointerEvents:'none'
+                    }} />
+                  ))}
+                  {/* Пунктирные линии каждые 30 мин */}
+                  {HOURS_LABELS.map((h, i) => (
+                    <div key={`half-${h}`} data-empty="true" style={{
+                      position:'absolute', left: i * SLOT_WIDTH * 2 + SLOT_WIDTH, top:0, bottom:0,
+                      borderLeft:'1px dashed rgba(0,0,0,0.04)', width:1, pointerEvents:'none'
+                    }} />
+                  ))}
 
-                const span = lesson ? lessonSpan(lesson) : 1
-
-                return (
-                  <div key={si}
-                    onClick={() => lesson ? openEdit(lesson) : (!occupied && openCreate(teacher.id, slot))}
-                    style={{
-                      position:'relative', minHeight:44,
-                      borderLeft: slot.min === 0 ? '1px solid var(--line-soft)' : '1px dashed var(--line-soft)',
-                      background: ri%2===0 ? 'transparent' : 'rgba(239,238,233,0.3)',
-                      cursor: 'pointer', transition:'0.15s',
-                      gridColumn: lesson ? `span ${span}` : undefined,
-                    }}
-                    onMouseEnter={e => { if(!lesson) e.currentTarget.style.background='var(--gold-muted)' }}
-                    onMouseLeave={e => { e.currentTarget.style.background = ri%2===0 ? 'transparent' : 'rgba(239,238,233,0.3)' }}
-                  >
-                    {lesson && (
-                      <div style={{
-                        position:'absolute', top:2, left:2, right:2, bottom:2,
-                        borderRadius:5, padding:'3px 6px',
-                        background: instrColor(lesson.instrument), color:'#fff',
-                        fontSize:10, fontWeight:600, overflow:'hidden',
-                        display:'flex', flexDirection:'column', justifyContent:'center',
-                        boxShadow:'0 1px 4px rgba(0,0,0,0.12)', cursor:'pointer'
-                      }}>
+                  {/* Уроки — абсолютно спозиционированные */}
+                  {tLessons.map(lesson => {
+                    const left = lessonLeft(lesson.lesson_time)
+                    const width = lessonWidth(lesson.lesson_duration)
+                    if (left < 0) return null
+                    return (
+                      <div key={lesson.id}
+                        onClick={(e) => { e.stopPropagation(); openEdit(lesson) }}
+                        style={{
+                          position:'absolute', top:3, bottom:3,
+                          left: left + 2, width: width,
+                          borderRadius:5, padding:'3px 6px',
+                          background: instrColor(lesson.instrument), color:'#fff',
+                          fontSize:10, fontWeight:600, overflow:'hidden',
+                          display:'flex', flexDirection:'column', justifyContent:'center',
+                          boxShadow:'0 1px 4px rgba(0,0,0,0.15)', cursor:'pointer',
+                          zIndex:1
+                        }}
+                        title={`${lesson.student_name} • ${lesson.instrument} • ${lesson.lesson_time} • ${lesson.lesson_duration}мин`}
+                      >
                         <div style={{ whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis', fontWeight:700, fontSize:10.5 }}>
                           {lesson.student_name || '—'}
                         </div>
-                        <div style={{ opacity:0.85, fontSize:9, display:'flex', gap:4 }}>
-                          <span>{lesson.instrument || ''}</span>
-                          {lesson.lesson_type==='group' && <span>• Гр.</span>}
-                          <span>• {lesson.lesson_duration || 60}м</span>
+                        <div style={{ opacity:0.85, fontSize:9 }}>
+                          {lesson.instrument || ''} • {lesson.lesson_duration || 60}м
                         </div>
                       </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          ))}
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
 

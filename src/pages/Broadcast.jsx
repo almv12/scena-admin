@@ -8,10 +8,14 @@ export default function Broadcast() {
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState(null)
   const [history, setHistory] = useState([])
+  const [historyError, setHistoryError] = useState(false)
 
   useEffect(() => {
-    supabase.from('message_history').select('*').order('sent_at', { ascending: false }).limit(20)
-      .then(({ data }) => setHistory(data || []))
+    supabase.from('message_history').select('*').order('created_at', { ascending: false }).limit(20)
+      .then(({ data, error }) => {
+        if (error) { setHistoryError(true); return }
+        setHistory(data || [])
+      })
   }, [])
 
   async function sendBroadcast() {
@@ -20,23 +24,30 @@ export default function Broadcast() {
     setResult(null)
 
     try {
-      // Call existing notify API
       const res = await fetch(`https://scena-app-proba.vercel.app/api/notify?action=broadcast&role=${target}&text=${encodeURIComponent(text)}`)
       const data = await res.json()
 
-      // Save to history
-      await supabase.from('message_history').insert({
-        target_role: target,
-        message_text: text,
-        recipients_count: data.sent || 0,
-      })
+      if (!data.ok) {
+        setResult({ success: false, error: data.error || 'Ошибка API' })
+        setSending(false)
+        return
+      }
+
+      // Сохраняем в историю (если таблица есть)
+      if (!historyError) {
+        await supabase.from('message_history').insert({
+          target_role: target,
+          message_text: text,
+          recipients_count: data.sent || 0,
+        }).catch(() => {})
+
+        const { data: hist } = await supabase.from('message_history').select('*')
+          .order('created_at', { ascending: false }).limit(20)
+        if (hist) setHistory(hist)
+      }
 
       setResult({ success: true, count: data.sent || 0 })
       setText('')
-
-      // Refresh history
-      const { data: hist } = await supabase.from('message_history').select('*').order('sent_at', { ascending: false }).limit(20)
-      setHistory(hist || [])
     } catch (err) {
       setResult({ success: false, error: err.message })
     }
@@ -50,7 +61,7 @@ export default function Broadcast() {
         <div style={{ fontSize:14, fontWeight:700, marginBottom:16 }}>Новая рассылка</div>
 
         <div style={{ marginBottom:14 }}>
-          <div className="field-label">Получатели</div>
+          <div style={{ fontSize:12, fontWeight:700, color:'var(--ink-muted)', marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>Получатели</div>
           <select className="s-input" value={target} onChange={e=>setTarget(e.target.value)}>
             <option value="student">Все ученики</option>
             <option value="teacher">Все педагоги</option>
@@ -59,7 +70,7 @@ export default function Broadcast() {
         </div>
 
         <div style={{ marginBottom:14 }}>
-          <div className="field-label">Сообщение</div>
+          <div style={{ fontSize:12, fontWeight:700, color:'var(--ink-muted)', marginBottom:4, textTransform:'uppercase', letterSpacing:0.5 }}>Сообщение</div>
           <textarea
             className="s-input"
             placeholder="Текст рассылки..."
@@ -79,8 +90,8 @@ export default function Broadcast() {
         {result && (
           <div style={{
             marginTop:14, padding:12, borderRadius:8, fontSize:13,
-            background: result.success ? 'var(--green-bg)' : 'var(--red-bg)',
-            color: result.success ? 'var(--green)' : 'var(--red)',
+            background: result.success ? '#3BA67615' : '#D4574E15',
+            color: result.success ? '#3BA676' : '#D4574E',
             fontWeight:600
           }}>
             {result.success
@@ -95,7 +106,19 @@ export default function Broadcast() {
       <div className="s-card" style={{ padding:22 }}>
         <div style={{ fontSize:14, fontWeight:700, marginBottom:16 }}>История рассылок</div>
 
-        {history.length === 0 ? (
+        {historyError ? (
+          <div style={{ fontSize:12, color:'var(--ink-muted)', textAlign:'center', padding:20 }}>
+            Таблица message_history не создана. Рассылка работает, но история не сохраняется.
+            <div style={{ marginTop:8, fontSize:11, color:'var(--ink-faint)' }}>
+              Создайте таблицу в Supabase SQL Editor:
+              <code style={{ display:'block', marginTop:4, padding:8, background:'var(--bg-alt)', borderRadius:6, fontSize:10, textAlign:'left' }}>
+                CREATE TABLE message_history (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), target_role text, message_text text, recipients_count int4, created_at timestamptz DEFAULT now());
+                ALTER TABLE message_history ENABLE ROW LEVEL SECURITY;
+                CREATE POLICY "mh_all" ON message_history FOR ALL USING (true) WITH CHECK (true);
+              </code>
+            </div>
+          </div>
+        ) : history.length === 0 ? (
           <Empty title="Нет рассылок" sub="Отправьте первую рассылку" />
         ) : history.map(h => (
           <div key={h.id} style={{ padding:'12px 0', borderBottom:'1px solid var(--line-soft)' }}>
@@ -104,7 +127,7 @@ export default function Broadcast() {
                 {h.target_role === 'student' ? 'Ученики' : h.target_role === 'teacher' ? 'Педагоги' : 'Все'}
               </span>
               <span style={{ color:'var(--ink-muted)' }}>
-                {h.sent_at ? new Date(h.sent_at).toLocaleDateString('ru') : '—'}
+                {h.created_at ? new Date(h.created_at).toLocaleDateString('ru') : '—'}
               </span>
             </div>
             <div style={{ fontSize:12.5, color:'var(--ink-soft)', marginBottom:4 }}>
@@ -117,3 +140,4 @@ export default function Broadcast() {
     </div>
   )
 }
+
