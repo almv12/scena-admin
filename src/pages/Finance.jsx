@@ -42,6 +42,12 @@ export default function Finance() {
   const [csvModal, setCsvModal] = useState(false)
   const [csvData, setCsvData] = useState([])
   const [csvImporting, setCsvImporting] = useState(false)
+  const [recurring, setRecurring] = useState([])
+  const [recurringModal, setRecurringModal] = useState(null)
+  const [deleteModal, setDeleteModal] = useState(null)
+  const [deleteReason, setDeleteReason] = useState('')
+  const [editModal, setEditModal] = useState(null)
+  const [editReason, setEditReason] = useState('')
 
   useEffect(() => { loadData() }, [period])
 
@@ -59,14 +65,15 @@ export default function Finance() {
       dateFrom = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`
     }
 
-    const [t, r, l, p, inc, exp, st] = await Promise.all([
+    const [t, r, l, p, inc, exp, st, rec] = await Promise.all([
       supabase.from('users').select('*').eq('role','teacher').order('full_name'),
       supabase.from('teacher_rates').select('*'),
       supabase.from('conducted_lessons').select('*').eq('status','approved').gte('lesson_date', dateFrom),
       supabase.from('payments').select('*').order('created_at', { ascending: false }).limit(50),
-      supabase.from('income').select('*').gte('income_date', dateFrom).order('income_date', { ascending: false }),
-      supabase.from('expenses').select('*').gte('expense_date', dateFrom).order('expense_date', { ascending: false }),
+      supabase.from('income').select('*').neq('is_deleted', true).gte('income_date', dateFrom).order('income_date', { ascending: false }),
+      supabase.from('expenses').select('*').neq('is_deleted', true).gte('expense_date', dateFrom).order('expense_date', { ascending: false }),
       supabase.from('users').select('id,full_name').eq('role','student').order('full_name'),
+      supabase.from('recurring_expenses').select('*').eq('is_active', true).order('description'),
     ])
     setTeachers(t.data || [])
     setRates(r.data || [])
@@ -75,6 +82,7 @@ export default function Finance() {
     setIncomeList(inc.data || [])
     setExpensesList(exp.data || [])
     setStudents(st.data || [])
+    setRecurring(rec.data || [])
     setLoading(false)
   }
 
@@ -94,19 +102,58 @@ export default function Finance() {
     setGenerating(true)
     const now = new Date()
     let created = 0
+    let totalAmount = 0
     for (const t of teachers) {
       const sal = calcSalary(t.id)
       if (sal.total <= 0) continue
       const { error } = await supabase.from('payments').insert({ teacher_id: t.id, amount: sal.total, period_month: now.getMonth()+1, period_year: now.getFullYear(), lessons_individual: sal.indiv, lessons_group: sal.group, status: 'pending' })
-      if (!error) created++
+      if (!error) { created++; totalAmount += sal.total }
     }
-    alert(`Сформировано ${created} записей`)
+    // Автоматически создаём расход "Зарплата"
+    if (totalAmount > 0) {
+      await supabase.from('expenses').insert({ category:'salary', description:`Зарплата педагогов ${now.getMonth()+1}/${now.getFullYear()} (авто)`, amount:totalAmount, expense_date:now.toISOString().slice(0,10), created_by_name:'Система', created_by_role:'auto' })
+    }
+    alert(`Сформировано ${created} записей, расход ${totalAmount.toLocaleString()} сум создан`)
     setGenerating(false)
     loadData()
   }
 
   async function markPaid(id) {
     await supabase.from('payments').update({ status:'paid', paid_at: new Date().toISOString() }).eq('id', id)
+    loadData()
+  }
+
+  // Soft delete с причиной
+  async function softDelete() {
+    if (!deleteModal || !deleteReason.trim()) { alert('Укажите причину удаления'); return }
+    const table = deleteModal.type === 'income' ? 'income' : 'expenses'
+    await supabase.from(table).update({ is_deleted: true, deleted_reason: deleteReason, deleted_by: 'Admin', deleted_at: new Date().toISOString() }).eq('id', deleteModal.id)
+    await supabase.from('finance_edits').insert({ record_type: deleteModal.type, record_id: deleteModal.id, action: 'delete', reason: deleteReason, edited_by_name: 'Admin', edited_by_role: 'director' }).catch(() => {})
+    setDeleteModal(null); setDeleteReason(''); loadData()
+  }
+
+  // Редактирование с причиной
+  async function saveFinanceEdit() {
+    if (!editModal || !editReason.trim()) { alert('Укажите причину'); return }
+    const table = editModal.type === 'income' ? 'income' : 'expenses'
+    const updates = { amount: parseInt(editModal.amount) }
+    if (editModal.type === 'income') { updates.student_name = editModal.student_name; updates.notes = editModal.notes }
+    else { updates.description = editModal.description; updates.category = editModal.category }
+    await supabase.from(table).update(updates).eq('id', editModal.id)
+    await supabase.from('finance_edits').insert({ record_type: editModal.type, record_id: editModal.id, action: 'edit', field_changed: 'amount', old_value: String(editModal.original_amount), new_value: String(editModal.amount), reason: editReason, edited_by_name: 'Admin', edited_by_role: 'director' }).catch(() => {})
+    setEditModal(null); setEditReason(''); loadData()
+  }
+
+  // Повторяющиеся расходы
+  async function saveRecurring() {
+    if (!recurringModal || !recurringModal.amount) return
+    await supabase.from('recurring_expenses').insert({ category: recurringModal.category || 'other', description: recurringModal.description || '', amount: parseInt(recurringModal.amount), branch_name: recurringModal.branch_name || null, vendor: recurringModal.vendor || null, day_of_month: parseInt(recurringModal.day_of_month) || 1 })
+    setRecurringModal(null); loadData()
+  }
+
+  async function deleteRecurring(id) {
+    if (!confirm('Удалить шаблон?')) return
+    await supabase.from('recurring_expenses').update({ is_active: false }).eq('id', id)
     loadData()
   }
 
